@@ -59,14 +59,15 @@ func main() {
 	for i := 0; i < len(config.URLs); i++ {
 		url := config.URLs[i]
 		status, err := CheckServiceStatus(url)
+		if status {
+			return
+		}
 		if err != nil {
-			wecomNotify("服务异常，请求超时："+url, config.Wecom_hook_url)
-			fmt.Printf("Error checking service status: %v\n", err)
-		} else if status {
-			fmt.Println("Service is up and running!")
+			wecomNotify("服务异常，请求超时："+url+err.Error(), config.Wecom_hook_url)
+			fmt.Printf("Error checking service status: %v  %v\n", err, url)
 		} else {
 			wecomNotify("服务异常，请求失败："+url, config.Wecom_hook_url)
-			fmt.Println("Service is down!")
+			fmt.Printf("Service is down:%v\n", url)
 		}
 	}
 }
