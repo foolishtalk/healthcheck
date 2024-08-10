@@ -26,7 +26,7 @@ func CheckServiceStatus(url string) (bool, error) {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return true, nil
 	}
-	return false, fmt.Errorf("service returned non-2xx status code: %d", resp.StatusCode)
+	return false, fmt.Errorf("service status code: %d", resp.StatusCode)
 }
 
 func parseSerivcesJSON() {
@@ -63,7 +63,7 @@ func main() {
 			return
 		}
 		if err != nil {
-			wecomNotify("服务异常，请求超时："+url+err.Error(), config.Wecom_hook_url)
+			wecomNotify("服务异常，请求超时："+url+"\n"+err.Error(), config.Wecom_hook_url)
 			fmt.Printf("Error checking service status: %v  %v\n", err, url)
 		} else {
 			wecomNotify("服务异常，请求失败："+url, config.Wecom_hook_url)
