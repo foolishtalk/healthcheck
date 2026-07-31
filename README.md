@@ -1,29 +1,32 @@
 # Healthcheck
 
 [![Hourly health check](https://github.com/foolishtalk/healthcheck/actions/workflows/healthcheck.yml/badge.svg)](https://github.com/foolishtalk/healthcheck/actions/workflows/healthcheck.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-一个轻量的域名与下载地址健康监测工具。项目完全运行在 GitHub Actions 上，无需购买服务器，默认每小时检查一次。
+English | [简体中文](README.zh-CN.md)
 
-## 检查内容
+A lightweight domain and download URL monitor powered entirely by GitHub Actions. It requires no server and checks your configured services once per hour by default.
 
-每个服务会执行两项检查：
+## What it checks
 
-1. **网络连通性**：向目标域名发送 1 个 ICMP ping。
-2. **下载地址可用性**：发送 HTTP `HEAD` 请求，检查最终响应是否为 `2xx`。
+Each configured service receives two checks:
 
-下载检查只获取响应头，不发送 `GET`，不读取响应正文，也不会保存文件。即使目标是体积很大的 `.pkg`、`.dmg` 或 `.zip` 文件，也不会真正下载，从而尽量减少网站流量。
+1. **Network reachability** — sends one ICMP ping to the target host.
+2. **Download URL availability** — sends an HTTP `HEAD` request and verifies that the final response has a `2xx` status.
 
-如果服务器不支持 `HEAD` 请求（例如返回 `405 Method Not Allowed`），检查会直接失败。程序不会回退到 `GET`。
+The download check only requests response headers. It never sends a `GET` request, reads a response body, or saves a file. Large `.pkg`, `.dmg`, and `.zip` targets are therefore not downloaded, keeping traffic to a minimum.
 
-## 快速开始
+If a server does not support `HEAD` requests—for example, if it returns `405 Method Not Allowed`—the check fails. The program deliberately does not fall back to `GET`.
 
-### 1. Fork 仓库
+## Quick start
 
-点击仓库右上角的 **Fork**，将项目复制到自己的 GitHub 账号。
+### 1. Fork this repository
 
-### 2. 配置监测目标
+Click **Fork** in the upper-right corner of this repository to create a copy under your GitHub account.
 
-编辑默认分支中的 [`services.json`](services.json)：
+### 2. Configure your targets
+
+Edit [`services.json`](services.json) on the default branch of your fork:
 
 ```json
 {
@@ -46,49 +49,49 @@
 }
 ```
 
-字段说明：
+Configuration fields:
 
-| 字段 | 必填 | 说明 |
+| Field | Required | Description |
 | --- | --- | --- |
-| `timeout_seconds` | 否 | 单项检查超时时间，默认为 10 秒 |
-| `name` | 是 | 服务名称，用于日志和告警消息 |
-| `download_url` | 是 | 需要通过 `HEAD` 检查的完整地址 |
-| `host` | 否 | 需要 ping 的域名；省略时从 `download_url` 自动提取 |
+| `timeout_seconds` | No | Timeout for each check; defaults to 10 seconds |
+| `name` | Yes | Service name used in logs and alert messages |
+| `download_url` | Yes | Full URL checked with an HTTP `HEAD` request |
+| `host` | No | Host to ping; derived automatically from `download_url` when omitted |
 
-如果 ping 与下载使用同一个域名，不需要配置 `host`。
+You do not need to specify `host` when the ping and download checks use the same domain.
 
-### 3. 启用 GitHub Actions
+### 3. Enable GitHub Actions
 
-GitHub 默认会关闭公开 fork 仓库中的定时工作流。进入你自己的仓库：
+GitHub disables scheduled workflows in public forks by default. In your fork:
 
-1. 打开 **Actions** 页面并启用工作流。
-2. 在左侧选择 **Hourly health check**。
-3. 点击 **Run workflow** 手动运行一次。
-4. 确认检查结果正常后，后续任务会自动每小时运行。
+1. Open the **Actions** tab and enable workflows.
+2. Select **Hourly health check** in the sidebar.
+3. Click **Run workflow** to perform an initial manual check.
+4. After the manual run succeeds, the workflow will continue automatically every hour.
 
-定时配置位于 [`.github/workflows/healthcheck.yml`](.github/workflows/healthcheck.yml)：
+The schedule is defined in [`.github/workflows/healthcheck.yml`](.github/workflows/healthcheck.yml):
 
 ```yaml
 schedule:
   - cron: "0 * * * *"
 ```
 
-GitHub Actions 的 cron 使用 UTC。当前配置表示每个整点运行一次，平台繁忙时可能延迟几分钟。公开仓库连续 60 天没有活动时，GitHub 可能自动停用定时工作流，重新启用即可。
+GitHub Actions cron expressions use UTC. This schedule runs at the start of every hour, although GitHub may delay scheduled jobs by a few minutes during periods of high load. GitHub may also disable scheduled workflows in public repositories after 60 days without repository activity; you can re-enable the workflow from the Actions tab.
 
-## 企业微信告警（可选）
+## WeCom alerts (optional)
 
-当任一检查失败时，工作流会显示失败。你还可以配置企业微信机器人通知：
+A failed check is always visible as a failed workflow run. You can also receive alerts through a WeCom bot:
 
-1. 打开仓库的 **Settings → Secrets and variables → Actions**。
-2. 点击 **New repository secret**。
-3. 名称填写 `WECOM_WEBHOOK_URL`。
-4. 值填写企业微信机器人的 webhook 地址。
+1. Open **Settings → Secrets and variables → Actions** in your repository.
+2. Click **New repository secret**.
+3. Enter `WECOM_WEBHOOK_URL` as the name.
+4. Paste your WeCom bot webhook URL as the value.
 
-Webhook 地址不会写入配置文件，也不会随 fork 复制。未配置该 Secret 时，健康检查仍会正常运行，只是不发送企业微信通知。
+The webhook URL is never stored in the configuration file and is not copied when the repository is forked. Health checks continue to work without this secret; only WeCom notifications are skipped.
 
-## 如何判断结果
+## Reading the results
 
-每次运行会在 GitHub Actions 日志中输出各项状态：
+Each workflow run prints the result of every check:
 
 ```text
 [OK]   website              ping example.com
@@ -96,18 +99,18 @@ Webhook 地址不会写入配置文件，也不会随 fork 复制。未配置该
 all 1 services are healthy
 ```
 
-只要有一项检查失败，程序就会返回非零状态，使该次 GitHub Actions 运行标红，并在已配置 webhook 时发送告警。程序会检查完所有服务，不会因为前一个服务成功或失败而跳过后续目标。
+If any check fails, the program exits with a non-zero status, marks the workflow run as failed, and sends an alert when a webhook is configured. Every configured service is checked before the program exits, so one result never prevents later targets from being tested.
 
-## 注意事项
+## Notes
 
-- 部分正常网站会主动屏蔽 ICMP ping，此时下载地址可能正常，但 ping 检查仍会失败。
-- `HEAD` 成功代表地址可以建立 HTTP 连接并返回成功状态，不代表完整文件内容一定正确。
-- GitHub Actions 发出的请求来自 GitHub 托管运行器，并不代表所有地区或运营商的访问情况。
-- 建议合理设置检查频率，避免给目标网站造成不必要的请求压力。
+- Some healthy websites block ICMP ping. In that case, the download URL may work while the ping check still fails.
+- A successful `HEAD` request confirms that the URL is reachable and returns a successful HTTP status; it does not verify the complete file contents.
+- Requests originate from GitHub-hosted runners and do not represent connectivity from every region or network provider.
+- Use a reasonable schedule to avoid placing unnecessary load on the monitored websites.
 
-## 本地运行
+## Run locally
 
-需要 Go 1.22.5 或更高版本：
+Go 1.22.5 or later is required:
 
 ```sh
 go test ./...
@@ -116,4 +119,4 @@ go run . -config services.json
 
 ## License
 
-[MIT](LICENSE)
+This project is licensed under the [MIT License](LICENSE). You may use, copy, modify, publish, and distribute it as long as the original copyright and license notice are retained.
