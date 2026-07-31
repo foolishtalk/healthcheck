@@ -89,6 +89,17 @@ GitHub Actions 的 cron 使用 UTC。当前配置表示每个整点运行一次�
 
 Webhook 地址不会写入配置文件，也不会随 fork 复制。未配置该 Secret 时，健康检查仍会正常运行，只是不发送企业微信通知。
 
+### 不访问线上目标，仅测试企业微信通知
+
+你可以在不 ping 域名、不请求任何监测地址的情况下，验证 GitHub Secret 和企业微信 Webhook：
+
+1. 打开 **Actions → Hourly health check**。
+2. 点击 **Run workflow**。
+3. 勾选 **Send a test WeCom notification without checking targets**。
+4. 再次点击 **Run workflow** 开始运行。
+
+该模式只发送一条明确标注为测试的企业微信消息，然后正常退出。它不会 ping 域名，不会发送 `HEAD`，也不会访问下载地址。每小时定时执行仍然使用正常健康检查模式。
+
 ## 如何判断结果
 
 每次运行会在 GitHub Actions 日志中输出各项状态：
@@ -115,6 +126,8 @@ all 1 services are healthy
 ```sh
 go test ./...
 go run . -config services.json
+# 不检查任何目标，只发送测试通知：
+go run . -config services.json -test-notification
 ```
 
 ## License

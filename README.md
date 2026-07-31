@@ -89,6 +89,17 @@ A failed check is always visible as a failed workflow run. You can also receive 
 
 The webhook URL is never stored in the configuration file and is not copied when the repository is forked. Health checks continue to work without this secret; only WeCom notifications are skipped.
 
+### Test WeCom without checking production targets
+
+You can verify the Secret and webhook without pinging a host or requesting any monitored URL:
+
+1. Open **Actions → Hourly health check**.
+2. Click **Run workflow**.
+3. Enable **Send a test WeCom notification without checking targets**.
+4. Click **Run workflow** again to start the run.
+
+This mode sends one clearly labeled test message to WeCom and exits. It does not ping any domain, send a `HEAD` request, or access a download URL. Scheduled runs always use the normal health-check mode.
+
 ## Reading the results
 
 Each workflow run prints the result of every check:
@@ -115,6 +126,8 @@ Go 1.22.5 or later is required:
 ```sh
 go test ./...
 go run . -config services.json
+# Send a test notification without checking any target:
+go run . -config services.json -test-notification
 ```
 
 ## License

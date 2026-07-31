@@ -21,12 +21,21 @@ type checkResult struct {
 
 func main() {
 	configPath := flag.String("config", "services.json", "path to the service configuration")
+	testNotification := flag.Bool("test-notification", false, "send a test WeCom notification without checking targets")
 	flag.Parse()
 
 	config, err := loadConfig(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "configuration error: %v\n", err)
 		os.Exit(2)
+	}
+	if *testNotification {
+		if err := sendTestNotification(config); err != nil {
+			fmt.Fprintf(os.Stderr, "test notification failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("test notification sent successfully; no targets were checked")
+		return
 	}
 
 	results := runChecks(config)
@@ -55,6 +64,24 @@ func main() {
 
 	fmt.Fprintf(os.Stderr, "%d health check(s) failed\n", len(failed))
 	os.Exit(1)
+}
+
+func sendTestNotification(config ServiceConfig) error {
+	webhookURL := config.webhookURL()
+	if webhookURL == "" {
+		return fmt.Errorf("WECOM_WEBHOOK_URL is not configured")
+	}
+
+	repository := strings.TrimSpace(os.Getenv("GITHUB_REPOSITORY"))
+	if repository == "" {
+		repository = "local run"
+	}
+	message := fmt.Sprintf(
+		"✅ Healthcheck 测试通知\n企业微信 Webhook 配置正常。\n仓库：%s\n时间：%s UTC\n本次测试未检查任何监测目标。",
+		repository,
+		time.Now().UTC().Format(time.RFC3339),
+	)
+	return wecomNotify(message, webhookURL, config.timeout())
 }
 
 func runChecks(config ServiceConfig) []checkResult {
