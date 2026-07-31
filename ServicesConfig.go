@@ -51,7 +51,7 @@ func loadConfig(path string) (ServiceConfig, error) {
 		if service.DownloadURL == "" {
 			return ServiceConfig{}, fmt.Errorf("services[%d].download_url is required", index)
 		}
-		if _, err := service.hostname(); err != nil {
+		if _, _, err := service.tcpEndpoint(); err != nil {
 			return ServiceConfig{}, fmt.Errorf("services[%d]: %w", index, err)
 		}
 	}
@@ -74,16 +74,30 @@ func (config ServiceConfig) webhookURL() string {
 	return strings.TrimSpace(config.WecomWebhookURL)
 }
 
-func (service Service) hostname() (string, error) {
-	if service.Host != "" {
-		return service.Host, nil
-	}
+func (service Service) tcpEndpoint() (string, string, error) {
 	parsed, err := url.ParseRequestURI(service.DownloadURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid download_url: %w", err)
+		return "", "", fmt.Errorf("invalid download_url: %w", err)
 	}
-	if parsed.Hostname() == "" {
-		return "", fmt.Errorf("download_url has no hostname")
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", "", fmt.Errorf("download_url has unsupported scheme %q", parsed.Scheme)
 	}
-	return parsed.Hostname(), nil
+
+	host := service.Host
+	if host == "" {
+		host = parsed.Hostname()
+	}
+	if host == "" {
+		return "", "", fmt.Errorf("download_url has no hostname")
+	}
+
+	port := parsed.Port()
+	if port == "" {
+		if parsed.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	return host, port, nil
 }

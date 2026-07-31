@@ -11,7 +11,7 @@ A lightweight domain and download URL monitor powered entirely by GitHub Actions
 
 Each configured service receives two checks:
 
-1. **Network reachability** — sends one ICMP ping to the target host.
+1. **Network reachability** — resolves the host and opens a TCP connection to the URL port (`80` for HTTP and `443` for HTTPS by default).
 2. **Download URL availability** — sends an HTTP `HEAD` request and verifies that the final response has a `2xx` status.
 
 The download check only requests response headers. It never sends a `GET` request, reads a response body, or saves a file. Large `.pkg`, `.dmg`, and `.zip` targets are therefore not downloaded, keeping traffic to a minimum.
@@ -41,7 +41,7 @@ Edit [`services.json`](services.json) on the default branch of your fork:
       "download_url": "https://downloads.example.com/app.dmg"
     },
     {
-      "name": "separate ping host",
+      "name": "separate TCP host",
       "host": "example.com",
       "download_url": "https://cdn.example.com/app.pkg"
     }
@@ -56,9 +56,9 @@ Configuration fields:
 | `timeout_seconds` | No | Timeout for each check; defaults to 10 seconds |
 | `name` | Yes | Service name used in logs and alert messages |
 | `download_url` | Yes | Full URL checked with an HTTP `HEAD` request |
-| `host` | No | Host to ping; derived automatically from `download_url` when omitted |
+| `host` | No | Host used for the TCP check; derived automatically from `download_url` when omitted |
 
-You do not need to specify `host` when the ping and download checks use the same domain.
+You do not need to specify `host` when the TCP and download checks use the same domain. A host and port shared by multiple URLs is checked only once per run.
 
 ### 3. Enable GitHub Actions
 
@@ -91,21 +91,21 @@ The webhook URL is never stored in the configuration file and is not copied when
 
 ### Test WeCom without checking production targets
 
-You can verify the Secret and webhook without pinging a host or requesting any monitored URL:
+You can verify the Secret and webhook without opening a TCP connection to a target or requesting any monitored URL:
 
 1. Open **Actions → Hourly health check**.
 2. Click **Run workflow**.
 3. Enable **Send a test WeCom notification without checking targets**.
 4. Click **Run workflow** again to start the run.
 
-This mode sends one clearly labeled test message to WeCom and exits. It does not ping any domain, send a `HEAD` request, or access a download URL. Scheduled runs always use the normal health-check mode.
+This mode sends one clearly labeled test message to WeCom and exits. It does not resolve or connect to any monitored host, send a `HEAD` request, or access a download URL. Scheduled runs always use the normal health-check mode.
 
 ## Reading the results
 
 Each workflow run prints the result of every check:
 
 ```text
-[OK]   website              ping example.com
+[OK]   website              tcp example.com:443
 [OK]   website              download headers https://example.com/
 all 1 services are healthy
 ```
@@ -114,7 +114,7 @@ If any check fails, the program exits with a non-zero status, marks the workflow
 
 ## Notes
 
-- Some healthy websites block ICMP ping. In that case, the download URL may work while the ping check still fails.
+- TCP connectivity verifies the network path and service port without relying on ICMP, which is commonly blocked by servers and firewalls.
 - A successful `HEAD` request confirms that the URL is reachable and returns a successful HTTP status; it does not verify the complete file contents.
 - Requests originate from GitHub-hosted runners and do not represent connectivity from every region or network provider.
 - Use a reasonable schedule to avoid placing unnecessary load on the monitored websites.

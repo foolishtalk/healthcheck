@@ -2,13 +2,12 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -86,21 +85,26 @@ func sendTestNotification(config ServiceConfig) error {
 
 func runChecks(config ServiceConfig) []checkResult {
 	results := make([]checkResult, 0, len(config.Services)*2)
+	checkedEndpoints := make(map[string]struct{})
 	for _, service := range config.Services {
-		host, err := service.hostname()
+		host, port, err := service.tcpEndpoint()
 		if err != nil {
 			results = append(results,
-				checkResult{Service: service.Name, Check: "ping", Err: err},
+				checkResult{Service: service.Name, Check: "tcp connectivity", Err: err},
 				checkResult{Service: service.Name, Check: "download headers", Err: err},
 			)
 			continue
 		}
 
-		results = append(results, checkResult{
-			Service: service.Name,
-			Check:   "ping " + host,
-			Err:     pingHost(host, config.timeout()),
-		})
+		endpoint := net.JoinHostPort(host, port)
+		if _, alreadyChecked := checkedEndpoints[endpoint]; !alreadyChecked {
+			checkedEndpoints[endpoint] = struct{}{}
+			results = append(results, checkResult{
+				Service: service.Name,
+				Check:   "tcp " + endpoint,
+				Err:     checkTCPConnectivity(host, port, config.timeout()),
+			})
+		}
 		results = append(results, checkResult{
 			Service: service.Name,
 			Check:   "download headers " + service.DownloadURL,
@@ -110,23 +114,16 @@ func runChecks(config ServiceConfig) []checkResult {
 	return results
 }
 
-func pingHost(host string, timeout time.Duration) error {
+func checkTCPConnectivity(host, port string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	// No shell is involved: host is passed as one argument. The context provides
-	// a portable timeout while -c 1 keeps the check to a single ICMP packet.
-	output, err := exec.CommandContext(ctx, "ping", "-c", "1", host).CombinedOutput()
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return fmt.Errorf("timed out after %s", timeout)
-	}
+	dialer := &net.Dialer{Timeout: timeout}
+	connection, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, port))
 	if err != nil {
-		detail := strings.TrimSpace(string(output))
-		if detail == "" {
-			detail = err.Error()
-		}
-		return fmt.Errorf("unreachable: %s", detail)
+		return err
 	}
+	_ = connection.Close()
 	return nil
 }
 
