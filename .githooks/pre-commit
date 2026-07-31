@@ -1,0 +1,20 @@
+#!/bin/sh
+
+set -eu
+
+branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+
+if [ "$branch" != "main" ]; then
+  exit 0
+fi
+
+if [ "${ALLOW_PUBLIC_SERVICES_CHANGE:-}" = "1" ]; then
+  exit 0
+fi
+
+if git diff --cached --name-only --diff-filter=ACMR -- services.json | grep -Fxq "services.json"; then
+  echo "Blocked: services.json is private configuration and cannot be committed on main." >&2
+  echo "Switch to master and commit it there." >&2
+  echo "For an intentional public template change, use ALLOW_PUBLIC_SERVICES_CHANGE=1 git commit ..." >&2
+  exit 1
+fi
