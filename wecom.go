@@ -2,44 +2,36 @@ package main
 
 import (
 	"bytes"
-	"io"
-	"log"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
 )
 
-func wecomNotify(content string, url string) {
-	payload := []byte(`
-    {
-      "msgtype": "text",
-      "text": {
-          "content": "` + content + `"
-      }
-    }
-    `)
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payload))
+func wecomNotify(content, webhookURL string, timeout time.Duration) error {
+	payload, err := json.Marshal(map[string]any{
+		"msgtype": "text",
+		"text": map[string]string{
+			"content": content,
+		},
+	})
 	if err != nil {
-		return
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, webhookURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
-		log.Println("request failed:", err)
-		return
+		return err
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			log.Println(err.Error())
-		}
-	}(resp.Body)
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Println("response fail:" + err.Error())
-		return
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("unexpected HTTP status %s", resp.Status)
 	}
-	log.Println("response:", string(body))
+	return nil
 }

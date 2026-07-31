@@ -1,73 +1,149 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
+	"errors"
+	"flag"
 	"fmt"
-	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 )
 
-var config ServiceConfig
-
-// CheckServiceStatus sends an HTTP GET request to the specified URL and checks if the service is up.
-func CheckServiceStatus(url string) (bool, error) {
-	client := http.Client{
-		Timeout: 5 * time.Second, // Set a timeout for the request
-	}
-	resp, err := client.Get(url)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-
-	// Check if the status code is 2xx (success)
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return true, nil
-	}
-	return false, fmt.Errorf("service status code: %d", resp.StatusCode)
-}
-
-func parseSerivcesJSON() {
-	// read local file
-	jsonFile, err := os.Open("services.json")
-	// if we os.Open returns an error then handle it
-	if err != nil {
-		fmt.Printf(err.Error())
-	}
-
-	defer func(jsonFile *os.File) {
-		err := jsonFile.Close()
-		if err != nil {
-			fmt.Printf(err.Error())
-		}
-	}(jsonFile)
-
-	byteValue, _ := io.ReadAll(jsonFile)
-
-	err = json.Unmarshal(byteValue, &config)
-	if err != nil {
-		fmt.Printf(err.Error())
-	}
+type checkResult struct {
+	Service string
+	Check   string
+	Err     error
 }
 
 func main() {
+	configPath := flag.String("config", "services.json", "path to the service configuration")
+	flag.Parse()
 
-	parseSerivcesJSON()
+	config, err := loadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "configuration error: %v\n", err)
+		os.Exit(2)
+	}
 
-	for i := 0; i < len(config.URLs); i++ {
-		url := config.URLs[i]
-		status, err := CheckServiceStatus(url)
-		if status {
-			return
+	results := runChecks(config)
+	failed := make([]checkResult, 0)
+	for _, result := range results {
+		if result.Err == nil {
+			fmt.Printf("[OK]   %-20s %s\n", result.Service, result.Check)
+			continue
 		}
-		if err != nil {
-			wecomNotify("服务异常，请求超时："+url+"\n"+err.Error(), config.Wecom_hook_url)
-			fmt.Printf("Error checking service status: %v  %v\n", err, url)
-		} else {
-			wecomNotify("服务异常，请求失败："+url, config.Wecom_hook_url)
-			fmt.Printf("Service is down:%v\n", url)
+
+		fmt.Printf("[FAIL] %-20s %s: %v\n", result.Service, result.Check, result.Err)
+		failed = append(failed, result)
+	}
+
+	if len(failed) == 0 {
+		fmt.Printf("all %d services are healthy\n", len(config.Services))
+		return
+	}
+
+	message := failureMessage(failed)
+	if webhookURL := config.webhookURL(); webhookURL != "" {
+		if err := wecomNotify(message, webhookURL, config.timeout()); err != nil {
+			fmt.Fprintf(os.Stderr, "notification failed: %v\n", err)
 		}
 	}
+
+	fmt.Fprintf(os.Stderr, "%d health check(s) failed\n", len(failed))
+	os.Exit(1)
+}
+
+func runChecks(config ServiceConfig) []checkResult {
+	results := make([]checkResult, 0, len(config.Services)*2)
+	for _, service := range config.Services {
+		host, err := service.hostname()
+		if err != nil {
+			results = append(results,
+				checkResult{Service: service.Name, Check: "ping", Err: err},
+				checkResult{Service: service.Name, Check: "download headers", Err: err},
+			)
+			continue
+		}
+
+		results = append(results, checkResult{
+			Service: service.Name,
+			Check:   "ping " + host,
+			Err:     pingHost(host, config.timeout()),
+		})
+		results = append(results, checkResult{
+			Service: service.Name,
+			Check:   "download headers " + service.DownloadURL,
+			Err:     checkDownloadHeaders(service.DownloadURL, config.timeout()),
+		})
+	}
+	return results
+}
+
+func pingHost(host string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// No shell is involved: host is passed as one argument. The context provides
+	// a portable timeout while -c 1 keeps the check to a single ICMP packet.
+	output, err := exec.CommandContext(ctx, "ping", "-c", "1", host).CombinedOutput()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("timed out after %s", timeout)
+	}
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return fmt.Errorf("unreachable: %s", detail)
+	}
+	return nil
+}
+
+func checkDownloadHeaders(rawURL string, timeout time.Duration) error {
+	client := &http.Client{Timeout: timeout}
+	return checkDownloadHeadersWithClient(rawURL, timeout, client)
+}
+
+func checkDownloadHeadersWithClient(rawURL string, timeout time.Duration, client *http.Client) error {
+	parsed, err := url.ParseRequestURI(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("unsupported URL scheme %q", parsed.Scheme)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, rawURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("User-Agent", "github-actions-healthcheck/1.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("unexpected HTTP status %s", resp.Status)
+	}
+	return nil
+}
+
+func failureMessage(results []checkResult) string {
+	var builder strings.Builder
+	builder.WriteString("服务健康检查失败：")
+	for _, result := range results {
+		fmt.Fprintf(&builder, "\n- %s / %s：%v", result.Service, result.Check, result.Err)
+	}
+	return builder.String()
 }

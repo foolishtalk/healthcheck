@@ -1,6 +1,9 @@
 {
-  "wecom_hook_url": "",
-  "urls": [
-    "https://www.foolishtalk.org/"
+  "timeout_seconds": 10,
+  "services": [
+    {
+      "name": "foolishtalk",
+      "download_url": "https://www.foolishtalk.org/"
+    }
   ]
 }
